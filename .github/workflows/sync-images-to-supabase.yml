@@ -1,0 +1,46 @@
+name: Sync images to Supabase
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '이미지/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Collect changed image files
+        id: changes
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            find "이미지" -type f -print0 | while IFS= read -r -d '' file; do
+              printf 'A\t%s\n' "$file"
+            done > changed-images.txt
+          else
+            git diff --name-status --diff-filter=AM "$GITHUB_EVENT_BEFORE" "$GITHUB_SHA" -- '이미지/**' > changed-images.txt
+          fi
+
+          if [[ -s changed-images.txt ]]; then
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload photos and register new URLs
+        if: steps.changes.outputs.has_changes == 'true'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_STORAGE_BUCKET: ${{ secrets.SUPABASE_STORAGE_BUCKET }}
+        run: python scripts/sync_images_to_supabase.py changed-images.txt
